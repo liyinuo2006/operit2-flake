@@ -30,6 +30,8 @@
       nixosModules = {
         # 无界面 CLI Link 节点（services.operit2-link）。
         link = import ./modules/nixos-link.nix;
+        # 仅安装 CLI（programs.operit2-cli.enable）。
+        cli = import ./modules/nixos-cli.nix;
         # 系统级安装 GUI（programs.operit2-desktop.enable）。
         desktop = import ./modules/nixos-desktop.nix;
         default = import ./modules/nixos-link.nix;

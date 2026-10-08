@@ -25,7 +25,8 @@ pkgs/cli.nix           # CLI
 pkgs/patch-source.py   # Nix 专用源码适配
 pkgs/pubspec.lock.json # 由上游 pubspec.lock 生成
 pkgs/update.py         # 升级：更新 pin / 重生成 lock / 校验补丁锚点
-modules/nixos-link.nix    # services.operit2-link
+modules/nixos-link.nix    # services.operit2-link（以指定用户常驻，含 CLI 安装）
+modules/nixos-cli.nix     # programs.operit2-cli（仅安装 CLI）
 modules/nixos-desktop.nix # programs.operit2-desktop（系统级）
 modules/home-desktop.nix  # programs.operit2-desktop（Home Manager）
 ```
@@ -79,9 +80,11 @@ nix shell nixpkgs#python3.withPackages\ \(p:\ \[\ p.pyyaml\ \]\) -c python3 pkgs
 - 桌面 GUI 单进程，关窗即退出；常驻在线能力由 `services.operit2-link` 提供。
 - 节点之间的网络可达性（局域网/公网/overlay）不在本仓范围；`services.operit2-link`
   只负责监听与放行接口，怎么让设备互通由使用者决定。
-- 没有验证过两个进程同时打开同一 Operit2 数据目录的行为，管理命令前先停服务。
-- `services.operit2-link.runAsRoot`（默认 false）让节点以 root 运行并关闭模块的
-  systemd 沙箱，`linux.root` 变为 Satisfied；仅在完全信任该 Agent 的机器上启用。
+- `services.operit2-link` 与上游模型一致：以 `user`（默认 root）运行 `link listen`，
+  数据用该用户 HOME 的默认目录；不做专用账号/目录隔离，也没有额外包装脚本。
+  权限即该用户的权限（root 就是 root）。
+- 没有验证过两个进程同时打开同一 Operit2 数据目录的行为，与常驻服务并行执行配对
+  类命令前先停服务。
 
 ## 验证（由用户执行）
 

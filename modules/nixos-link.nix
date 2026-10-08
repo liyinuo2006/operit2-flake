@@ -1,5 +1,6 @@
-# Operit2 无界面 CLI 节点：常驻 `operit2 cli link listen`，作为 Space 中的一个 CoreNode
-# 接收配对、同步与多跳转发。它不是中心服务器；权限仅为本服务用户的系统权限。
+# Operit2 无界面 Link 节点：以指定用户常驻运行 `operit2 cli link listen`。
+# 与上游模型一致：节点数据就在该用户 HOME 的默认目录（~/.local/share/operit2、
+# ~/.config/operit2），管理用同一个用户的普通 `operit2` 命令即可，无需额外包装或隔离。
 {
   config,
   lib,
@@ -8,19 +9,9 @@
 }:
 let
   cfg = config.services.operit2-link;
-  user = "operit2-link";
-  stateDir = "/var/lib/operit2-link";
+  userHome = config.users.users.${cfg.user}.home;
 
-  # 运行环境必须与 operit2 的存储约定一致：
-  # 运行时数据位于 $XDG_DATA_HOME/operit2，CLI 配置位于 $OPERIT_CLI_CONFIG_DIR。
-  runtimeEnv = {
-    HOME = stateDir;
-    XDG_DATA_HOME = "${stateDir}/data";
-    OPERIT_CLI_CONFIG_DIR = "${stateDir}/config";
-  };
-  envArgs = lib.mapAttrsToList (name: value: "${name}=${value}") runtimeEnv;
-
-  listenArgs = lib.concatStringsSep " " (
+  listenArgs =
     [
       "cli"
       "link"
@@ -31,11 +22,11 @@ let
       "--fixed-port"
     ]
     ++ lib.optional (!cfg.discovery) "--no-discovery"
-  );
+    ++ cfg.extraArgs;
 in
 {
   options.services.operit2-link = {
-    enable = lib.mkEnableOption "Operit2 CLI Link 无界面节点";
+    enable = lib.mkEnableOption "Operit2 CLI Link 节点";
 
     package = lib.mkOption {
       type = lib.types.package;
@@ -44,10 +35,19 @@ in
       description = "提供 operit2 CLI 的包。";
     };
 
+    user = lib.mkOption {
+      type = lib.types.str;
+      default = "root";
+      description = ''
+        运行节点的用户。节点数据就写在该用户 HOME 下的默认目录，因此
+        用同一用户执行 `operit2 cli ...` 时操作的是同一个实例。
+      '';
+    };
+
     bindAddress = lib.mkOption {
       type = lib.types.str;
       default = "0.0.0.0";
-      description = "监听地址。实际可达范围由 openFirewallOn / openFirewallPublic 决定。";
+      description = "监听地址。可达性由防火墙与承载网络决定。";
     };
 
     port = lib.mkOption {
@@ -71,7 +71,13 @@ in
     discovery = lib.mkOption {
       type = lib.types.bool;
       default = false;
-      description = "是否开启 mDNS 局域网发现。服务器默认关闭，避免在公网网卡广播。";
+      description = "是否开启 mDNS 局域网发现。服务器通常关闭。";
+    };
+
+    extraArgs = lib.mkOption {
+      type = lib.types.listOf lib.types.str;
+      default = [ ];
+      description = "追加到 `link listen` 之后的额外参数。";
     };
 
     openFirewallOn = lib.mkOption {
@@ -86,68 +92,31 @@ in
       default = false;
       description = "是否在所有网卡放行 Link 端口（直接暴露公网时才需要）。";
     };
-
-    runAsRoot = lib.mkOption {
-      type = lib.types.bool;
-      default = false;
-      description = ''
-        以 root 运行节点。此时 linux.root 需求为 Satisfied，AI 可获得整机 root
-        能力；同时会关闭本模块的 systemd 沙箱加固。仅在完全信任该 Agent 的机器上使用。
-      '';
-    };
   };
 
   config = lib.mkIf cfg.enable {
-    # root 模式下不创建专用用户。
-    users.users.${user} = lib.mkIf (!cfg.runAsRoot) {
-      isSystemUser = true;
-      group = user;
-      home = stateDir;
-      description = "Operit2 Link node";
-    };
-    users.groups.${user} = lib.mkIf (!cfg.runAsRoot) { };
-
     systemd.services.operit2-link = {
       description = "Operit2 CLI Link node";
       wantedBy = [ "multi-user.target" ];
       wants = [ "network-online.target" ];
       after = [ "network-online.target" ];
-      environment = runtimeEnv;
+      # systemd 服务默认没有 HOME，而 operit2 需要一个 HOME 来决定存储目录。
+      environment.HOME = userHome;
 
       serviceConfig = {
         Type = "simple";
-        ExecStart = "${cfg.package}/bin/operit2 ${listenArgs}";
-        # listen 只在收到 Ctrl-C（SIGINT）时执行 stopListening；systemd 默认发 SIGTERM。
+        User = cfg.user;
+        WorkingDirectory = userHome;
+        ExecStart = lib.escapeShellArgs ([ "${cfg.package}/bin/operit2" ] ++ listenArgs);
+        # listen 只在收到 Ctrl-C（SIGINT）时停止监听；systemd 默认发 SIGTERM。
         KillSignal = "SIGINT";
-        StateDirectory = "operit2-link";
-        StateDirectoryMode = "0700";
-        WorkingDirectory = stateDir;
         Restart = "on-failure";
         RestartSec = 5;
-      }
-      // lib.optionalAttrs (!cfg.runAsRoot) {
-        User = user;
-        Group = user;
-        NoNewPrivileges = true;
-        ProtectSystem = "strict";
-        ProtectHome = true;
-        PrivateTmp = true;
-        ProtectKernelTunables = true;
-        ProtectKernelModules = true;
-        ProtectControlGroups = true;
-        ProtectClock = true;
-        RestrictSUIDSGID = true;
-        RestrictNamespaces = true;
-        LockPersonality = true;
-        # AF_NETLINK 供 `ip route` 读取设备网络信息，缺少会让设备信息失败。
-        RestrictAddressFamilies = [
-          "AF_UNIX"
-          "AF_INET"
-          "AF_INET6"
-          "AF_NETLINK"
-        ];
       };
     };
+
+    # 把 CLI 装进系统，方便以该用户登录后直接 `operit2 cli ...` 配置同一个实例。
+    environment.systemPackages = [ cfg.package ];
 
     networking.firewall = {
       allowedTCPPorts = lib.optional cfg.openFirewallPublic cfg.port;
@@ -155,16 +124,5 @@ in
         allowedTCPPorts = [ cfg.port ];
       });
     };
-
-    # 管理命令：以服务身份访问同一份数据目录（需要 root）。
-    # 同一数据目录同时只应有一个运行中的 Core；执行配对类命令前先 `systemctl stop operit2-link`。
-    environment.systemPackages = [
-      (pkgs.writeShellScriptBin "operit2-link-cli" (
-        if cfg.runAsRoot then
-          ''exec ${pkgs.coreutils}/bin/env ${lib.escapeShellArgs envArgs} ${cfg.package}/bin/operit2 cli "$@"''
-        else
-          ''exec ${pkgs.util-linux}/bin/runuser -u ${user} -- ${pkgs.coreutils}/bin/env ${lib.escapeShellArgs envArgs} ${cfg.package}/bin/operit2 cli "$@"''
-      ))
-    ];
   };
 }

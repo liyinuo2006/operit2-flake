@@ -29,6 +29,7 @@ inputs.operit2 = {
 
   services.operit2-link = {
     enable = true;
+    user = "root";   # 默认 root；节点数据写在该用户 HOME 的默认目录
     # 需要外部可达时，在承载流量的网卡上放行（名字按你自己的网络方案填）：
     # openFirewallOn = [ "wg0" ];
     # 或者显式暴露公网（不推荐）：
@@ -37,13 +38,21 @@ inputs.operit2 = {
 }
 ```
 
-默认以独立的非 root 系统用户运行，数据在 `/var/lib/operit2-link`。若机器需要整机 root 能力（例如只有一个 root 用户的服务器），设 `runAsRoot = true`：`linux.root` 会变为 Satisfied，AI 获得 root 权限，同时会关闭本模块的 systemd 沙箱加固。管理命令：
+节点以 `user`（默认 root）身份常驻运行，数据就在该用户的默认目录（`~/.local/share/operit2`、`~/.config/operit2`）。本模块会把 `operit2` 装进系统，所以以同一用户登录后，用普通命令配置的就是服务那份实例：
 
 ```sh
-sudo operit2-link-cli link token show
+sudo operit2 cli link token show
+sudo operit2 cli link pair-start <node-id> <address> tcp --token <token>
 ```
 
-同一数据目录只能有一个运行中的 Core：执行配对类命令前先 `systemctl stop operit2-link`，完成后再启动。
+同一数据目录同时只应有一个运行中的 Core；与常驻服务并行执行配对类命令时，先 `systemctl stop operit2-link`，完成后再启动。
+
+只想装 CLI（不跑服务，自己写 systemd 单元）：
+
+```nix
+imports = [ inputs.operit2.nixosModules.cli ];
+programs.operit2-cli.enable = true;
+```
 
 ### 桌面：安装 GUI
 
@@ -72,7 +81,8 @@ sudo operit2-link-cli link token show
 
 ## 模块与输出
 
-- `nixosModules.default` / `nixosModules.link`：`services.operit2-link`（CLI 常驻节点）
+- `nixosModules.default` / `nixosModules.link`：`services.operit2-link`（CLI 常驻节点，含 CLI 安装）
+- `nixosModules.cli`：`programs.operit2-cli.enable`（仅安装 CLI）
 - `nixosModules.desktop`：`programs.operit2-desktop.enable`（系统级 GUI）
 - `homeModules.default` / `homeModules.desktop`：`programs.operit2-desktop.enable`（Home Manager GUI）
 - `packages.x86_64-linux.{operit2-desktop,operit2-cli,default}`

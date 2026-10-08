@@ -86,16 +86,26 @@ in
       default = false;
       description = "是否在所有网卡放行 Link 端口（直接暴露公网时才需要）。";
     };
+
+    runAsRoot = lib.mkOption {
+      type = lib.types.bool;
+      default = false;
+      description = ''
+        以 root 运行节点。此时 linux.root 需求为 Satisfied，AI 可获得整机 root
+        能力；同时会关闭本模块的 systemd 沙箱加固。仅在完全信任该 Agent 的机器上使用。
+      '';
+    };
   };
 
   config = lib.mkIf cfg.enable {
-    users.users.${user} = {
+    # root 模式下不创建专用用户。
+    users.users.${user} = lib.mkIf (!cfg.runAsRoot) {
       isSystemUser = true;
       group = user;
       home = stateDir;
       description = "Operit2 Link node";
     };
-    users.groups.${user} = { };
+    users.groups.${user} = lib.mkIf (!cfg.runAsRoot) { };
 
     systemd.services.operit2-link = {
       description = "Operit2 CLI Link node";
@@ -106,8 +116,6 @@ in
 
       serviceConfig = {
         Type = "simple";
-        User = user;
-        Group = user;
         ExecStart = "${cfg.package}/bin/operit2 ${listenArgs}";
         # listen 只在收到 Ctrl-C（SIGINT）时执行 stopListening；systemd 默认发 SIGTERM。
         KillSignal = "SIGINT";
@@ -116,7 +124,10 @@ in
         WorkingDirectory = stateDir;
         Restart = "on-failure";
         RestartSec = 5;
-
+      }
+      // lib.optionalAttrs (!cfg.runAsRoot) {
+        User = user;
+        Group = user;
         NoNewPrivileges = true;
         ProtectSystem = "strict";
         ProtectHome = true;
@@ -145,12 +156,15 @@ in
       });
     };
 
-    # 管理命令：以服务用户身份访问同一份数据目录（需要 root）。
+    # 管理命令：以服务身份访问同一份数据目录（需要 root）。
     # 同一数据目录同时只应有一个运行中的 Core；执行配对类命令前先 `systemctl stop operit2-link`。
     environment.systemPackages = [
-      (pkgs.writeShellScriptBin "operit2-link-cli" ''
-        exec ${pkgs.util-linux}/bin/runuser -u ${user} -- ${pkgs.coreutils}/bin/env ${lib.escapeShellArgs envArgs} ${cfg.package}/bin/operit2 cli "$@"
-      '')
+      (pkgs.writeShellScriptBin "operit2-link-cli" (
+        if cfg.runAsRoot then
+          ''exec ${pkgs.coreutils}/bin/env ${lib.escapeShellArgs envArgs} ${cfg.package}/bin/operit2 cli "$@"''
+        else
+          ''exec ${pkgs.util-linux}/bin/runuser -u ${user} -- ${pkgs.coreutils}/bin/env ${lib.escapeShellArgs envArgs} ${cfg.package}/bin/operit2 cli "$@"''
+      ))
     ];
   };
 }

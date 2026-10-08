@@ -80,6 +80,8 @@ nix shell nixpkgs#python3.withPackages\ \(p:\ \[\ p.pyyaml\ \]\) -c python3 pkgs
 - 节点之间的网络可达性（局域网/公网/overlay）不在本仓范围；`services.operit2-link`
   只负责监听与放行接口，怎么让设备互通由使用者决定。
 - 没有验证过两个进程同时打开同一 Operit2 数据目录的行为，管理命令前先停服务。
+- `services.operit2-link.runAsRoot`（默认 false）让节点以 root 运行并关闭模块的
+  systemd 沙箱，`linux.root` 变为 Satisfied；仅在完全信任该 Agent 的机器上启用。
 
 ## 验证（由用户执行）
 

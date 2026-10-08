@@ -37,7 +37,7 @@ inputs.operit2 = {
 }
 ```
 
-服务以独立系统用户运行，数据在 `/var/lib/operit2-link`。管理命令：
+默认以独立的非 root 系统用户运行，数据在 `/var/lib/operit2-link`。若机器需要整机 root 能力（例如只有一个 root 用户的服务器），设 `runAsRoot = true`：`linux.root` 会变为 Satisfied，AI 获得 root 权限，同时会关闭本模块的 systemd 沙箱加固。管理命令：
 
 ```sh
 sudo operit2-link-cli link token show

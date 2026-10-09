@@ -64,7 +64,11 @@ in
           "ws"
         ]
       );
-      default = [ "tcp" ];
+      # 上游 GUI 的手动配对只提供 HTTP/WebSocket 两种 carrier，默认用它们才连得上。
+      default = [
+        "http"
+        "ws"
+      ];
       description = "Link 传输。TCP 不能与 http/ws 共用同一端口。";
     };
 
